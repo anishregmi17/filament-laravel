@@ -31,6 +31,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Js;
+use SensitiveParameter;
 
 class SetUpAppAuthenticationAction
 {
@@ -91,7 +92,7 @@ class SetUpAppAuthenticationAction
                             ->validationAttribute(__('filament-panels::auth/multi-factor/app/actions/set-up.modal.form.code.validation_attribute'))
                             ->required()
                             ->rule(function () use ($action, $appAuthentication): Closure {
-                                return function (string $attribute, $value, Closure $fail) use ($action, $appAuthentication): void {
+                                return function (string $attribute, #[SensitiveParameter] $value, Closure $fail) use ($action, $appAuthentication): void {
                                     $rateLimitingKey = 'filament-set-up-app-authentication:' . Filament::auth()->id();
 
                                     if (RateLimiter::tooManyAttempts($rateLimitingKey, maxAttempts: 5)) {
@@ -146,7 +147,7 @@ class SetUpAppAuthenticationAction
                                     ->label(__('filament-panels::auth/multi-factor/recovery-codes-modal-content.actions.download.label'))
                                     ->link()
                                     ->url('data:application/octet-stream,' . urlencode(implode(PHP_EOL, $recoveryCodes)))
-                                    ->extraAttributes(['download' => true])
+                                    ->extraAttributes(['download' => 'recovery-codes.txt'])
                                     ->toHtml() .
                                 ' ' .
                                 __('filament-panels::auth/multi-factor/recovery-codes-modal-content.actions.2')

@@ -1,10 +1,14 @@
 ---
 title: Query builder
 ---
+import Aside from "@components/Aside.astro"
+import AutoScreenshot from "@components/AutoScreenshot.astro"
 
 ## Introduction
 
 The query builder allows you to define a complex set of conditions to filter the data in your table. It is able to handle unlimited nesting of conditions, which you can group together with "and" and "or" operations.
+
+<AutoScreenshot name="tables/filters/query-builder" alt="Query builder filter" version="4.x" />
 
 To use it, you need to define a set of "constraints" that will be used to filter the data. Filament includes some built-in constraints, that follow common data types, but you can also define your own custom constraints.
 
@@ -212,6 +216,12 @@ SelectConstraint::make('creator.department') // Filter the `department` column o
         'purchasing' => 'Purchasing',
     ])
 ```
+
+<Aside variant="danger">
+    `options()` is a UI affordance, not an authorization boundary. The list constrains what the dropdown displays, but the submitted value is not checked against it before the constraint runs. Query-builder rules are stored in Livewire state and can be tampered with — a crafted request can submit any value into the constraint's `settings`, and `IsOperator::apply()` passes it straight into `whereIn`/`where` on the query.
+
+    If you are using `options()` to hide certain values from a group of users (for example, hiding `archived` from non-admins), scope the underlying query itself — for example with [`modifyRelationshipQueryUsing()`](#scoping-relationships) on the constraint, a [`modifyQueryUsing()`](../../resources/listing-records#customizing-the-eloquent-query) on the resource, or a global scope on the model — so the restricted rows are never reachable regardless of what the constraint submits.
+</Aside>
 
 #### Searchable select constraints
 

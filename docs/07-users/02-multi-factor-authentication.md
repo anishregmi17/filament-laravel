@@ -2,12 +2,15 @@
 title: Multi-factor authentication
 ---
 import Aside from "@components/Aside.astro"
+import AutoScreenshot from "@components/AutoScreenshot.astro"
 
 ## Introduction
 
 Users in Filament can sign in with their email address and password by default. However, you can enable multi-factor authentication (MFA) to add an extra layer of security to your users' accounts.
 
 When MFA is enabled, users must perform an extra step before they are authenticated and have access to the application.
+
+<AutoScreenshot name="panels/mfa-challenge" alt="The multi-factor authentication challenge page" version="4.x" />
 
 Filament includes two methods of MFA which you can enable out of the box:
 
@@ -26,6 +29,8 @@ public function panel(Panel $panel): Panel
         ->profile();
 }
 ```
+
+<AutoScreenshot name="panels/mfa" alt="Multi-factor authentication options on the profile page" version="4.x" />
 
 ## App authentication
 
@@ -312,3 +317,12 @@ In Filament, the multi-factor authentication process occurs before the user is a
 
 However, if you have other parts of your Laravel app that authenticate users, please bear in mind that they will not be challenged for multi-factor authentication if they are already authenticated elsewhere and then visit the panel, unless [multi-factor authentication is required](#requiring-multi-factor-authentication) and they have not set it up yet.
 
+### Concurrent recovery code submissions
+
+When a user signs in with a recovery code, Filament's `verifyRecoveryCode()` method wraps the read-validate-write sequence in a per-user `Cache::lock` and a database transaction with a `lockForUpdate()` row lock on the user's row. The cache lock serializes concurrent submissions across PHP workers regardless of the underlying database driver, so two parallel sign-in requests cannot both consume the same code or resurrect a just-consumed code from a stale snapshot — even when the storage is a non-SQL store, a different database connection, or a driver without `SELECT ... FOR UPDATE` support (such as SQLite).
+
+<Aside variant="warning">
+    The cache lock relies on a shared lock store. Filament's default `file` cache store, as well as `redis`, `memcached`, `database`, and `dynamodb`, all provide a shared lock across PHP-FPM workers on the same machine (or across machines, for the network-backed stores). The `array` store is per-process and does not serialize across workers — it is intended for testing only.
+
+    If you override `getAppAuthenticationRecoveryCodes()` / `saveAppAuthenticationRecoveryCodes()`, the cache lock still wraps the full read-validate-write sequence, so your override is protected. Your override is only responsible for making the storage write itself atomic — for example, a single Eloquent `update()` or an equivalent atomic primitive on your chosen store.
+</Aside>

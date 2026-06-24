@@ -4,6 +4,7 @@ use Filament\Auth\Pages\Login;
 use Filament\Facades\Filament;
 use Filament\Tests\Fixtures\Models\User;
 use Filament\Tests\TestCase;
+use Illuminate\Auth\Events\Attempting;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Event;
@@ -34,185 +35,297 @@ it('can render page with a custom slug', function (): void {
         ->assertSuccessful();
 });
 
-it('can authenticate', function (): void {
-    $this->assertGuest();
+describe('authentication', function (): void {
+    it('can authenticate', function (): void {
+        $this->assertGuest();
 
-    $userToAuthenticate = User::factory()->create();
+        $userToAuthenticate = User::factory()->create();
 
-    livewire(Login::class)
-        ->fillForm([
-            'email' => $userToAuthenticate->email,
-            'password' => 'password',
-        ])
-        ->call('authenticate')
-        ->assertRedirect(Filament::getUrl());
-
-    $this->assertAuthenticatedAs($userToAuthenticate);
-});
-
-it('can authenticate and redirect user to their intended URL', function (): void {
-    session()->put('url.intended', $intendedUrl = Str::random());
-
-    $userToAuthenticate = User::factory()->create();
-
-    livewire(Login::class)
-        ->fillForm([
-            'email' => $userToAuthenticate->email,
-            'password' => 'password',
-        ])
-        ->call('authenticate')
-        ->assertRedirect($intendedUrl);
-});
-
-it('can redirect unauthenticated app requests', function (): void {
-    $this->get(route('filament.admin.pages.dashboard'))->assertRedirect(Filament::getLoginUrl());
-});
-
-it('cannot authenticate with incorrect credentials', function (): void {
-    Event::fake([Failed::class]);
-
-    $userToAuthenticate = User::factory()->create();
-
-    livewire(Login::class)
-        ->fillForm([
-            'email' => $userToAuthenticate->email,
-            'password' => 'incorrect-password',
-        ])
-        ->call('authenticate')
-        ->assertHasFormErrors(['email']);
-
-    $this->assertGuest();
-
-    Event::assertDispatched(function (Failed $event) use ($userToAuthenticate) {
-        if ($event->guard !== 'web') {
-            return false;
-        }
-
-        if (! $event->user->is($userToAuthenticate)) {
-            return false;
-        }
-
-        if ($event->credentials !== [
-            'email' => $userToAuthenticate->email,
-            'password' => 'incorrect-password',
-        ]) {
-            return false;
-        }
-
-        return true;
-    });
-});
-
-it('cannot authenticate on unauthorized panel', function (): void {
-    Event::fake([Failed::class]);
-
-    $userToAuthenticate = User::factory()->create();
-
-    Filament::setCurrentPanel('custom');
-
-    livewire(Login::class)
-        ->fillForm([
-            'email' => $userToAuthenticate->email,
-            'password' => 'password',
-        ])
-        ->call('authenticate')
-        ->assertHasFormErrors(['email']);
-
-    $this->assertGuest();
-
-    Event::assertDispatched(function (Failed $event) use ($userToAuthenticate) {
-        if ($event->guard !== 'web') {
-            return false;
-        }
-
-        if (! $event->user->is($userToAuthenticate)) {
-            return false;
-        }
-
-        if ($event->credentials !== [
-            'email' => $userToAuthenticate->email,
-            'password' => 'password',
-        ]) {
-            return false;
-        }
-
-        return true;
-    });
-});
-
-it('can throttle authentication attempts', function (): void {
-    $this->assertGuest();
-
-    $userToAuthenticate = User::factory()->create();
-
-    foreach (range(1, 5) as $i) {
         livewire(Login::class)
             ->fillForm([
                 'email' => $userToAuthenticate->email,
                 'password' => 'password',
             ])
-            ->call('authenticate');
+            ->call('authenticate')
+            ->assertRedirect(Filament::getUrl());
 
-        $this->assertAuthenticated();
+        $this->assertAuthenticatedAs($userToAuthenticate);
+    });
 
-        auth()->logout();
-    }
+    it('rotates the session ID after a successful authentication to prevent session fixation', function (): void {
+        $userToAuthenticate = User::factory()->create();
 
-    livewire(Login::class)
-        ->fillForm([
-            'email' => $userToAuthenticate->email,
-            'password' => 'password',
-        ])
-        ->call('authenticate')
-        ->assertNotified();
+        $sessionIdBefore = session()->getId();
 
-    $this->assertGuest();
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertRedirect(Filament::getUrl());
+
+        expect(session()->getId())->not->toBe($sessionIdBefore);
+    });
+
+    it('rotates the CSRF token after a successful authentication', function (): void {
+        $userToAuthenticate = User::factory()->create();
+
+        session()->start();
+        $csrfTokenBefore = session()->token();
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertRedirect(Filament::getUrl());
+
+        expect(session()->token())->not->toBe($csrfTokenBefore);
+    });
+
+    it('does not rotate the CSRF token when authentication fails (control)', function (): void {
+        $userToAuthenticate = User::factory()->create();
+
+        session()->start();
+        $csrfTokenBefore = session()->token();
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'wrong-password',
+            ])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email']);
+
+        expect(session()->token())->toBe($csrfTokenBefore);
+    });
+
+    it('can authenticate and redirect user to their intended URL', function (): void {
+        session()->put('url.intended', $intendedUrl = Str::random());
+
+        $userToAuthenticate = User::factory()->create();
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertRedirect($intendedUrl);
+    });
+
+    it('can redirect unauthenticated app requests', function (): void {
+        $this->get(route('filament.admin.pages.dashboard'))->assertRedirect(Filament::getLoginUrl());
+    });
+
 });
 
-it('can validate `email` is required', function (): void {
-    livewire(Login::class)
-        ->fillForm(['email' => ''])
-        ->call('authenticate')
-        ->assertHasFormErrors(['email' => ['required']]);
+describe('authentication failures', function (): void {
+    it('cannot authenticate with incorrect credentials', function (): void {
+        Event::fake([Failed::class]);
+
+        $userToAuthenticate = User::factory()->create();
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'incorrect-password',
+            ])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email']);
+
+        $this->assertGuest();
+
+        Event::assertDispatched(function (Failed $event) use ($userToAuthenticate) {
+            if ($event->guard !== 'web') {
+                return false;
+            }
+
+            if (! $event->user->is($userToAuthenticate)) {
+                return false;
+            }
+
+            if ($event->credentials !== [
+                'email' => $userToAuthenticate->email,
+                'password' => 'incorrect-password',
+            ]) {
+                return false;
+            }
+
+            return true;
+        });
+    });
+
+    it('fires the `Attempting` event when authentication fails because the email is unknown', function (): void {
+        Event::fake([Attempting::class]);
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => 'nonexistent@example.com',
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email']);
+
+        Event::assertDispatched(function (Attempting $event): bool {
+            if ($event->guard !== 'web') {
+                return false;
+            }
+
+            return $event->credentials === [
+                'email' => 'nonexistent@example.com',
+                'password' => 'password',
+            ];
+        });
+    });
+
+    it('fires the `Attempting` event when authentication fails because the password is wrong', function (): void {
+        Event::fake([Attempting::class]);
+
+        $userToAuthenticate = User::factory()->create();
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'incorrect-password',
+            ])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email']);
+
+        Event::assertDispatched(function (Attempting $event) use ($userToAuthenticate): bool {
+            if ($event->guard !== 'web') {
+                return false;
+            }
+
+            return $event->credentials === [
+                'email' => $userToAuthenticate->email,
+                'password' => 'incorrect-password',
+            ];
+        });
+    });
+
+    it('cannot authenticate on unauthorized panel', function (): void {
+        Event::fake([Failed::class]);
+
+        $userToAuthenticate = User::factory()->create();
+
+        Filament::setCurrentPanel('custom');
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email']);
+
+        $this->assertGuest();
+
+        Event::assertDispatched(function (Failed $event) use ($userToAuthenticate) {
+            if ($event->guard !== 'web') {
+                return false;
+            }
+
+            if (! $event->user->is($userToAuthenticate)) {
+                return false;
+            }
+
+            if ($event->credentials !== [
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ]) {
+                return false;
+            }
+
+            return true;
+        });
+    });
+
 });
 
-it('can validate `email` is valid email', function (): void {
-    livewire(Login::class)
-        ->fillForm(['email' => 'invalid-email'])
-        ->call('authenticate')
-        ->assertHasFormErrors(['email' => ['email']]);
+describe('rate limiting', function (): void {
+    it('can throttle authentication attempts', function (): void {
+        $this->assertGuest();
+
+        $userToAuthenticate = User::factory()->create();
+
+        foreach (range(1, 5) as $i) {
+            livewire(Login::class)
+                ->fillForm([
+                    'email' => $userToAuthenticate->email,
+                    'password' => 'password',
+                ])
+                ->call('authenticate');
+
+            $this->assertAuthenticated();
+
+            auth()->logout();
+        }
+
+        livewire(Login::class)
+            ->fillForm([
+                'email' => $userToAuthenticate->email,
+                'password' => 'password',
+            ])
+            ->call('authenticate')
+            ->assertNotified();
+
+        $this->assertGuest();
+    });
+
 });
 
-it('can validate `password` is required', function (): void {
-    livewire(Login::class)
-        ->fillForm(['password' => ''])
-        ->call('authenticate')
-        ->assertHasFormErrors(['password' => ['required']]);
+describe('validation', function (): void {
+    it('can validate `email` is required', function (): void {
+        livewire(Login::class)
+            ->fillForm(['email' => ''])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email' => ['required']]);
+    });
+
+    it('can validate `email` is valid email', function (): void {
+        livewire(Login::class)
+            ->fillForm(['email' => 'invalid-email'])
+            ->call('authenticate')
+            ->assertHasFormErrors(['email' => ['email']]);
+    });
+
+    it('can validate `password` is required', function (): void {
+        livewire(Login::class)
+            ->fillForm(['password' => ''])
+            ->call('authenticate')
+            ->assertHasFormErrors(['password' => ['required']]);
+    });
+
 });
 
 it('can fill the login form, authenticate, and redirect to the dashboard in the browser', function (): void {
-    $user = User::factory()->create();
+    retry(10, function (): void {
+        $user = User::factory()->create();
 
-    visit(Filament::getLoginUrl())
-        ->assertSee('Sign in')
-        ->assertNoSmoke()
-        ->assertNoAccessibilityIssues()
-        ->type('input[type="email"]', $user->email)
-        ->type('input[type="password"]', 'password')
-        ->click('button[type="submit"]')
-        ->assertSee('Dashboard')
-        ->assertPathIs('/')
-        ->assertSee('Dashboard')
-        ->assertNoSmoke()
-        ->assertNoAccessibilityIssues();
+        visit(Filament::getLoginUrl())
+            ->assertSee('Sign in')
+            ->assertNoSmoke()
+            ->assertNoAccessibilityIssues()
+            ->type('input[type="email"]', $user->email)
+            ->type('input[type="password"]', 'password')
+            ->click('button[type="submit"]')
+            ->assertSee('Dashboard')
+            ->assertPathIs('/')
+            ->assertSee('Dashboard')
+            ->assertNoSmoke()
+            ->assertNoAccessibilityIssues();
 
-    visit(Filament::getLoginUrl())
-        ->inDarkMode()
-        ->assertNoAccessibilityIssues();
+        visit(Filament::getLoginUrl())
+            ->inDarkMode()
+            ->assertNoAccessibilityIssues();
 
-    visit(Filament::getUrl())
-        ->inDarkMode()
-        ->assertNoAccessibilityIssues();
+        visit(Filament::getUrl())
+            ->inDarkMode()
+            ->assertNoAccessibilityIssues();
+    });
 });
 
 it('does not lock out a user when an attacker exhausts login attempts from a different IP', function (): void {

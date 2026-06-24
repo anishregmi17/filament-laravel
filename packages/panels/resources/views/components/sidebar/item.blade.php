@@ -112,7 +112,7 @@
         @endif
     </a>
 
-    @if (($active || $activeChildItems) && $childItems)
+    @if ($childItems && (blank($url) || $active || $activeChildItems))
         <ul class="fi-sidebar-sub-group-items">
             @foreach ($childItems as $childItem)
                 @php
@@ -120,8 +120,8 @@
                     $isChildActive = (! $isChildItemChildItemsActive) && $childItem->isActive();
                     $childItemActiveIcon = $childItem->getActiveIcon();
                     $childItemBadge = $childItem->getBadge();
-                    $childItemBadgeColor = $childItem->getBadgeColor();
-                    $childItemBadgeTooltip = $childItem->getBadgeTooltip();
+                    $childItemBadgeColor = $childItem->getBadgeColor($childItemBadge);
+                    $childItemBadgeTooltip = $childItem->getBadgeTooltip($childItemBadge);
                     $childItemIcon = $childItem->getIcon();
                     $shouldChildItemOpenUrlInNewTab = $childItem->shouldOpenUrlInNewTab();
                     $childItemUrl = $childItem->getUrl();
